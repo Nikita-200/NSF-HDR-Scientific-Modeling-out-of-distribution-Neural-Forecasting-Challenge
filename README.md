@@ -107,7 +107,7 @@ This is a **multi-step, multi-variate time series forecasting** problem, where:
 
 ---
 
-## Baseline vs. This Approach
+## Baseline vs. My Approach
 
 ### What the Baseline Did
 
@@ -117,7 +117,7 @@ The provided baseline used a 2-layer GRU encoder paired with a linear output hea
 GRU(input=C, hidden=1024, layers=2)  →  Linear(1024 → C)
 ```
 
-For multi-step inference, the future decoder inputs were constructed by **repeating the last known step** `T - 10` times. This is the core flaw: the model was effectively shown a flat, constant signal as context for all future steps, giving it no opportunity to leverage its own predictions. The result was a train loss of ~0.018 and val loss of ~0.020, but the actual test MSE on the leaderboard was an order of magnitude worse (~252,000 aggregate) because the inference procedure destroyed the temporal structure that the model had learned.
+For multi-step inference, the future decoder inputs were constructed by **repeating the last known step** `T - 10` times. This is the core flaw: the model was effectively shown a flat, constant signal as context for all future steps, giving it no opportunity to leverage its own predictions.
 
 ### What This Approach Does Differently
 
@@ -318,92 +318,6 @@ BATCH_SIZE = 16
 D_MODEL    = 128
 N_LAYERS   = 2
 ```
-
----
-
-## Results
-
-### Leaderboard Comparison
-
-| Model | MSE affi | MSE beignet | MSE affi D2 | MSE beignet D2 | MSE beignet D3 | Total MSR |
-|-------|----------|-------------|-------------|----------------|----------------|-----------|
-| GRU Baseline | 329,797 | 435,136 | 236,341 | 112,279 | 148,628 | 252,436 |
-| **NFTransformer (ours)** | *target range* | *target range* | *target range* | *target range* | *target range* | *target range* |
-| Top Leaderboard | 39,304 | 45,103 | 33,241 | 32,968 | 37,501 | 37,624 |
-
-The GRU baseline's catastrophic performance (252K vs. 37K for the leader) is almost entirely attributable to the broken multi-step inference — the model achieves a reasonable training loss of 0.018 but the repeated-token inference destroys the signal. This architecture fixes that fundamental flaw.
-
----
-
-## Repository Structure
-
-```
-.
-├── neuroforecast_transformer.py   # Main model, trainer, and entry point
-├── README.md                      # This file
-├── train_data_affi.npz            # Affi dataset (not included, download from CodaBench)
-├── train_data_beignet.npz         # Beignet dataset (not included, download from CodaBench)
-├── norm_stats_affi.npz            # Saved normalisation statistics (generated on first run)
-├── norm_stats_beignet.npz         # Saved normalisation statistics (generated on first run)
-├── model_best_affi.pth            # Best checkpoint for affi (generated during training)
-├── model_best_beignet.pth         # Best checkpoint for beignet (generated during training)
-└── test_predictions_affi.npz      # Saved predictions for submission (generated after eval)
-```
-
----
-
-## Installation & Usage
-
-### Requirements
-
-```bash
-pip install torch torchvision numpy
-```
-
-PyTorch >= 2.0 is recommended for the `batch_first=True` and `norm_first=True` Transformer options used here.
-
-### Running on `affi`
-
-```bash
-# In neuroforecast_transformer.py, ensure:
-# dataset_name = 'affi'
-
-python neuroforecast_transformer.py
-```
-
-### Running on `beignet`
-
-Change the config at the top of the file:
-
-```python
-dataset_name = 'beignet'
-num_channels = 89
-```
-
-then run:
-
-```bash
-python neuroforecast_transformer.py
-```
-
-### Resuming from a Checkpoint
-
-To resume training or run inference from a saved checkpoint, load the weights before calling `trainer.train()` or `trainer.predict()`:
-
-```python
-model.load_state_dict(torch.load('model_best_affi.pth', map_location=device))
-```
-
-### Running in a Jupyter / Kaggle Notebook
-
-Copy all class and function definitions into notebook cells. Replace the `if __name__ == '__main__': main()` block with direct calls:
-
-```python
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-train_raw, test_raw, val_raw = load_dataset('train_data_affi.npz')
-# ... rest of main() body
-```
-
 ---
 
 ## Extending the Model
@@ -419,15 +333,6 @@ For very long conditioning windows, a TCN encoder can be more efficient than sel
 ### Adding a Diffusion / Probabilistic Head
 
 Instead of a deterministic MSE objective, replace the output projection with a diffusion model head or a normalising flow to get calibrated predictive distributions over future neural states. This is useful for quantifying uncertainty in BCI applications.
-
-### Ensembling Multiple Runs
-
-Because neural forecasting models can settle into different local minima, ensembling `K` independently trained models by averaging their autoregressive predictions reliably reduces MSE by 5–15%:
-
-```python
-all_preds = [trainer_k.predict(test_loader)[0] for trainer_k in ensemble]
-mean_pred = np.mean(all_preds, axis=0)
-```
 
 ---
 
